@@ -1,0 +1,123 @@
+trigger:
+- main  # Adjust to your branch name
+
+pool:
+  vmImage: 'ubuntu-latest'  # Specify the agent OS
+
+steps:
+  # Step 1: Install Node.js
+  - task: UseNode@1
+    inputs:
+      versionSpec: '16.x'  # Use Node.js version 16 or any compatible version
+    displayName: 'Set up Node.js'
+
+  # Step 2: Create the `veracodeResults.json` file for testing (optional, if not already provided)
+  - script: |
+      echo '{
+        "issues": [
+          {
+            "type": "SQL Injection",
+            "severity": "High",
+            "description": "User input is not sanitized.",
+            "recommendation": "Use parameterized queries."
+          },
+          {
+            "type": "Cross-Site Scripting (XSS)",
+            "severity": "Medium",
+            "description": "Unescaped user input is rendered in the browser.",
+            "recommendation": "Escape user-generated content."
+          }
+        ]
+      }' > veracodeResults.json
+      echo "Sample JSON file created."
+    displayName: 'Create Sample JSON File'
+    condition: succeeded()
+
+  # Step 3: Run the Node.js script to generate HTML report
+  - script: |
+      const fs = require('fs');
+
+      // Load the JSON file
+      const generateHtmlReport = (jsonFilePath, outputFilePath) => {
+        try {
+          const jsonData = JSON.parse(fs.readFileSync(jsonFilePath, 'utf8'));
+
+          // HTML template
+          const htmlTemplate = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Veracode Scan Results</title>
+              <style>
+                  body {
+                      font-family: Arial, sans-serif;
+                      margin: 20px;
+                  }
+                  table {
+                      border-collapse: collapse;
+                      width: 100%;
+                      margin-top: 20px;
+                  }
+                  th, td {
+                      border: 1px solid #ddd;
+                      padding: 8px;
+                      text-align: left;
+                  }
+                  th {
+                      background-color: #f2f2f2;
+                      font-weight: bold;
+                  }
+                  tr:nth-child(even) {
+                      background-color: #f9f9f9;
+                  }
+                  tr:hover {
+                      background-color: #ddd;
+                  }
+              </style>
+          </head>
+          <body>
+              <h1>Veracode Scan Results</h1>
+              <table>
+                  <thead>
+                      <tr>
+                          <th>Issue Type</th>
+                          <th>Severity</th>
+                          <th>Description</th>
+                          <th>Recommendation</th>
+                      </tr>
+                  </thead>
+                  <tbody>
+                      ${jsonData.issues.map(issue => `
+                          <tr>
+                              <td>${issue.type}</td>
+                              <td>${issue.severity}</td>
+                              <td>${issue.description}</td>
+                              <td>${issue.recommendation}</td>
+                          </tr>
+                      `).join('')}
+                  </tbody>
+              </table>
+          </body>
+          </html>
+          `;
+
+          // Write the HTML file
+          fs.writeFileSync(outputFilePath, htmlTemplate);
+          console.log(`HTML report generated at ${outputFilePath}`);
+        } catch (error) {
+          console.error("Error generating HTML report:", error.message);
+        }
+      };
+
+      // Run the script
+      generateHtmlReport('veracodeResults.json', 'veracodeResults.html');
+    displayName: 'Generate Veracode HTML Report with Node.js'
+    condition: succeeded()
+
+  # Step 4: Publish the HTML report as a pipeline artifact
+  - task: PublishPipelineArtifact@1
+    inputs:
+      targetPath: 'veracodeResults.html'
+      artifactName: 'VeracodeReport'
+    displayName: 'Publish HTML Report Artifact'
+    condition: succeeded()
